@@ -1,3 +1,6 @@
+import os
+import pickle
+
 import torch
 import numpy as np
 import torch.utils.data
@@ -98,10 +101,26 @@ def data_loader(X, Y, batch_size, shuffle=True, drop_last=True):
                                              shuffle=shuffle, drop_last=drop_last)
     return dataloader
 
-def get_dataloader(args, normalizer = 'std', tod=False, dow=False, weather=False, single=True):
+def get_dataloader(args, normalizer = 'std', tod=False, dow=False, weather=False, single=True, length = None):
     #load raw st dataset
-    data = load_st_dataset(args.dataset)        # B, N, D
+    data = load_st_dataset(args.dataset, length)        # B, N, D
     #normalize st data
+    # 创建缓存文件路径
+    cache_dir = os.path.join("../PEMS_data/PEMS04/", 'data_cache')
+    os.makedirs(cache_dir, exist_ok=True)
+
+    # 生成缓存文件名（基于数据集和参数，包含tod和dow信息）
+    cache_key = f"{args.dataset}_{args.lag}_{args.horizon}_{args.val_ratio}_{args.test_ratio}_{normalizer}_{args.column_wise}_tod{tod}_dow{dow}"
+    cache_key += f"_{length}" if length is not None else ''
+    cache_file = os.path.join(cache_dir, f"{cache_key}.pkl")
+
+    # 检查缓存是否存在
+    if os.path.exists(cache_file):
+        print(f"Loading cached data from {cache_file}")
+        with open(cache_file, 'rb') as f:
+            cached_data = pickle.load(f)
+            return cached_data['train_loader'], cached_data['val_loader'], cached_data['test_loader'], \
+                cached_data['scaler_data'], cached_data['scaler_day'], cached_data['scaler_week']
     # data, scaler = normalize_dataset(data, normalizer, args.column_wise)
 
     #spilit dataset by days or by ratio
@@ -156,5 +175,17 @@ def get_dataloader(args, normalizer = 'std', tod=False, dow=False, weather=False
     else:
         val_dataloader = data_loader(x_val, y_val, args.batch_size, shuffle=False, drop_last=False)
     test_dataloader = data_loader(x_test, y_test, args.batch_size, shuffle=False, drop_last=False)
+    # 缓存处理后的数据
+    print(f"Saving processed data to cache: {cache_file}")
+    cached_data = {
+        'train_loader': train_dataloader,
+        'val_loader': val_dataloader,
+        'test_loader': test_dataloader,
+        'scaler_data': scaler_data,
+        'scaler_day': scaler_day,
+        'scaler_week': scaler_week
+    }
+    with open(cache_file, 'wb') as f:
+        pickle.dump(cached_data, f)
     return train_dataloader, val_dataloader, test_dataloader, scaler_data, scaler_day, scaler_week
     # return train_dataloader, val_dataloader, test_dataloader, scaler
