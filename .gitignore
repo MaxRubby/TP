@@ -1,0 +1,26 @@
+# 排除模型保存目录
+model/SAVE/
+SAVE/
+
+# 排除Python缓存文件
+__pycache__/
+*.py[cod]
+*$py.class
+
+# 排除Jupyter Notebook检查点
+.ipynb_checkpoints/
+
+# 排除IDE配置文件
+.vscode/
+.idea/
+
+# 排除日志文件
+*.log
+
+# 排除数据缓存文件
+**/data_cache/
+*.pkl
+
+# 排除临时文件
+*.tmp
+*.temp

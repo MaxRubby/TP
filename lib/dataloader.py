@@ -143,28 +143,40 @@ def get_dataloader(args, normalizer = 'std', tod=False, dow=False, weather=False
 
     x_tra_data = scaler_data.transform(x_tra[:, :, :, 0:1])
     y_tra_data = scaler_data.transform(y_tra[:, :, :, 0:1])
-    x_tra_day = scaler_day.transform(x_tra[:, :, :, 1:2])
-    y_tra_day = scaler_day.transform(y_tra[:, :, :, 1:2])
-    x_tra_week = scaler_week.transform(x_tra[:, :, :, 2:3])
-    y_tra_week = scaler_week.transform(y_tra[:, :, :, 2:3])
+    # x_tra_day = scaler_day.transform(x_tra[:, :, :, 1:2])
+    # y_tra_day = scaler_day.transform(y_tra[:, :, :, 1:2])
+    # x_tra_week = scaler_week.transform(x_tra[:, :, :, 2:3])
+    # y_tra_week = scaler_week.transform(y_tra[:, :, :, 2:3])
+    x_tra_day = x_tra[:, :, :, 1:2]
+    y_tra_day = y_tra[:, :, :, 1:2]
+    x_tra_week =x_tra[:, :, :, 2:3]
+    y_tra_week =y_tra[:, :, :, 2:3]
     x_tra = np.concatenate([x_tra_data, x_tra_day, x_tra_week], axis=-1)
     y_tra = np.concatenate([y_tra_data, y_tra_day, y_tra_week], axis=-1)
 
     x_val_data = scaler_data.transform(x_val[:, :, :, 0:1])
     y_val_data = scaler_data.transform(y_val[:, :, :, 0:1])
-    x_val_day = scaler_day.transform(x_val[:, :, :, 1:2])
-    y_val_day = scaler_day.transform(y_val[:, :, :, 1:2])
-    x_val_week = scaler_week.transform(x_val[:, :, :, 2:3])
-    y_val_week = scaler_week.transform(y_val[:, :, :, 2:3])
+    # x_val_day = scaler_day.transform(x_val[:, :, :, 1:2])
+    # y_val_day = scaler_day.transform(y_val[:, :, :, 1:2])
+    # x_val_week = scaler_week.transform(x_val[:, :, :, 2:3])
+    # y_val_week = scaler_week.transform(y_val[:, :, :, 2:3])
+    x_val_day = x_val[:, :, :, 1:2]
+    y_val_day = y_val[:, :, :, 1:2]
+    x_val_week =x_val[:, :, :, 2:3]
+    y_val_week =y_val[:, :, :, 2:3]
     x_val = np.concatenate([x_val_data, x_val_day, x_val_week], axis=-1)
     y_val = np.concatenate([y_val_data, y_val_day, y_val_week], axis=-1)
 
     x_test_data = scaler_data.transform(x_test[:, :, :, 0:1])
     y_test_data = scaler_data.transform(y_test[:, :, :, 0:1])
-    x_test_day = scaler_day.transform(x_test[:, :, :, 1:2])
-    y_test_day = scaler_day.transform(y_test[:, :, :, 1:2])
-    x_test_week = scaler_week.transform(x_test[:, :, :, 2:3])
-    y_test_week = scaler_week.transform(y_test[:, :, :, 2:3])
+    # x_test_day = scaler_day.transform(x_test[:, :, :, 1:2])
+    # y_test_day = scaler_day.transform(y_test[:, :, :, 1:2])
+    # x_test_week = scaler_week.transform(x_test[:, :, :, 2:3])
+    # y_test_week = scaler_week.transform(y_test[:, :, :, 2:3])
+    x_test_day = x_test[:, :, :, 1:2]
+    y_test_day = y_test[:, :, :, 1:2]
+    x_test_week =x_test[:, :, :, 2:3]
+    y_test_week =y_test[:, :, :, 2:3]
     x_test = np.concatenate([x_test_data, x_test_day, x_test_week], axis=-1)
     y_test = np.concatenate([y_test_data, y_test_day, y_test_week], axis=-1)
 

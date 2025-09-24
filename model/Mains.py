@@ -1,4 +1,5 @@
 
+from math import log
 import os
 import sys
 file_dir = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
@@ -11,7 +12,8 @@ import torch.nn as nn
 import argparse
 import configparser
 from datetime import datetime
-from model.teacher import STMLP as Network
+from model.Teacher import STMLP as StudentNetwork, STAEformerTeacher as TeacherNetwork
+from model.Teacher import Teacher as Network
 from model.BasicTrainer import Trainer
 from lib.TrainInits import init_seed
 from lib.dataloader import get_dataloader
@@ -45,7 +47,7 @@ def scaler_mae_loss(scaler, mask_value):
     return loss
 
 def Mkdir(path):
-    if os.path.isdir(path):
+    if os.path.exists(path):
         pass
     else:
         os.makedirs(path)
@@ -115,6 +117,8 @@ args.add_argument('--log_dir', default='./', type=str)
 args.add_argument('--log_step', default=config['log']['log_step'], type=int)
 args.add_argument('--plot', default=config['log']['plot'], type=eval)
 args.add_argument('--teacher', default=True, type=eval)
+args.add_argument('--t', action='store_true', help='train teacher model first')
+args.add_argument('--use_staeformer_teacher', action='store_true', help='use STAEformer as teacher model')
 args = args.parse_args()
 
 args.filepath = '../PEMS_data/' + DATASET +'/'
@@ -130,20 +134,26 @@ if torch.cuda.is_available():
 else:
     args.device = 'cpu'
 
-#init model
-model = Network(args)
-model = model.to(args.device)
+#init models
+# 学生模型 (STMLP)
+student_model = StudentNetwork(args)
+student_model = student_model.to(args.device)
+
+# 教师模型 (STAEformer)
+# teacher_model = TeacherNetwork(args)
+teacher_model = Network(args)
+teacher_model = teacher_model.to(args.device)
 # for p in model.parameters():
 #     if p.dim() > 1:
 #         nn.init.xavier_uniform_(p)
 #     else:
 #         nn.init.uniform_(p)
-print_model_parameters(model, only_num=False)
+print_model_parameters(student_model, only_num=False)
 
 #load dataset
 train_loader, val_loader, test_loader, scaler_data, scaler_day, scaler_week = get_dataloader(args,
                                                                normalizer=args.normalizer,
-                                                               tod=args.tod, dow=False,
+                                                               tod=True, dow=True,
                                                                weather=False, single=False)
 
 #init loss function, optimizer
@@ -156,32 +166,57 @@ elif args.loss_func == 'mse':
 else:
     raise ValueError
 
-optimizer = torch.optim.Adam(params=model.parameters(), lr=args.lr_init, eps=1.0e-8,
-                             weight_decay=0, amsgrad=False)
+# 为学生模型创建优化器
+student_optimizer = torch.optim.Adam(params=student_model.parameters(), lr=args.lr_init, eps=1.0e-8,
+                                    weight_decay=0, amsgrad=False)
+
+# 为教师模型创建优化器
+teacher_optimizer = torch.optim.Adam(params=teacher_model.parameters(), lr=args.lr_init, eps=1.0e-8,
+                                    weight_decay=0, amsgrad=False)
 #learning rate decay
-lr_scheduler = None
+student_lr_scheduler = None
+teacher_lr_scheduler = None
 if args.lr_decay:
     print('Applying learning rate decay.')
     lr_decay_steps = [int(i) for i in list(args.lr_decay_step.split(','))]
-    lr_scheduler = torch.optim.lr_scheduler.MultiStepLR(optimizer=optimizer,
-                                                        milestones=lr_decay_steps,
-                                                        gamma=args.lr_decay_rate)
-    #lr_scheduler = torch.optim.lr_scheduler.CosineAnnealingLR(optimizer=optimizer, T_max=64)
+    student_lr_scheduler = torch.optim.lr_scheduler.MultiStepLR(optimizer=student_optimizer,
+                                                               milestones=lr_decay_steps,
+                                                               gamma=args.lr_decay_rate)
+    teacher_lr_scheduler = torch.optim.lr_scheduler.MultiStepLR(optimizer=teacher_optimizer,
+                                                               milestones=lr_decay_steps,
+                                                               gamma=args.lr_decay_rate)
 
 #config log path
 current_dir = os.path.dirname(os.path.realpath(__file__))
-log_dir = os.path.join(current_dir,'SAVE', args.dataset)
+log_dir = os.path.join(current_dir,'SAVE', args.mode, args.model, args.dataset)
+
 Mkdir(log_dir)
+
+print(log_dir)
 args.log_dir = log_dir
 
 #start training
-trainer = Trainer(model, loss, optimizer, train_loader, val_loader, test_loader, scaler_data,
-                  args, lr_scheduler=lr_scheduler)
 if args.mode == 'train':
-    trainer.trainS()
+    if args.t:
+        print("=== Phase 1: Training Teacher Model (STAEformer) ===")
+        # 创建教师模型训练器
+        teacher_trainer = Trainer(teacher_model, loss, teacher_optimizer, train_loader, val_loader, test_loader, 
+                                scaler_data, args, lr_scheduler=teacher_lr_scheduler)
+        teacher_trainer.train_teacher()
+        print("Teacher model training completed!")
+        
+    print("=== Phase 2: Training Student Model (STMLP) with Knowledge Distillation ===")
+    # 创建学生模型训练器（用于知识蒸馏）
+    student_trainer = Trainer(student_model, loss, student_optimizer, train_loader, val_loader, test_loader,
+                             scaler_data, args, lr_scheduler=student_lr_scheduler)
+    student_trainer.trainS()
+    print("Student model training completed!")
+    
 elif args.mode == 'test':
-    model.load_state_dict(torch.load(log_dir + '/best_modelstudent.pth'))
-    print("Load saved model")
-    trainer.test(model, trainer.args, test_loader, scaler_data, trainer.logger)
+    student_model.load_state_dict(torch.load(log_dir + '/best_modelstudent.pth'))
+    print("Load saved student model")
+    test_trainer = Trainer(student_model, loss, student_optimizer, train_loader, val_loader, test_loader,
+                          scaler_data, args, lr_scheduler=student_lr_scheduler)
+    test_trainer.test(student_model, test_trainer.args, test_loader, scaler_data, test_trainer.logger)
 else:
     raise ValueError

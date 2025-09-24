@@ -1,11 +1,11 @@
 import os
 import numpy as np
 
-def load_st_dataset(dataset):
+def load_st_dataset(dataset, length=None):
     #output B, N, D
     if dataset == 'PEMS04':
         data_path = os.path.join('../PEMS_data/PEMS04/PEMS04.npz')
-        data = np.load(data_path)['data'][:, :, 0]  #onley the first dimension, traffic flow data
+        data = np.load(data_path)['data'][:length if length != -1 else None, :, 0]  #onley the first dimension, traffic flow data
 
         # day and week
         day_data = np.zeros_like(data)
@@ -19,14 +19,18 @@ def load_st_dataset(dataset):
                 day_init = 0
             if (index) % 288 == 0:
                 week_init = week_init + 1
+            
+            # tod: 0-1范围的浮点数，表示一天中的时间位置
+            day_data[index:index + 1, :] = day_init / 288.0  # 0到1之间
+            # dow: 0-6范围的整数，表示星期几  
+            week_data[index:index + 1, :] = week_init - 1  # 调整到0-6范围
+            
             day_init = day_init + 1
-            day_data[index:index + 1, :] = day_init
-            week_data[index:index + 1, :] = week_init
 
 
     elif dataset == 'PEMS08':
         data_path = os.path.join('../PEMS_data/PEMS08/PEMS08.npz')
-        data = np.load(data_path)['data'][:, :, 0]  #onley the first dimension, traffic flow data
+        data = np.load(data_path)['data'][:len if len != -1 else None, :, 0]  #onley the first dimension, traffic flow data
 
         # day and week
         day_data = np.zeros_like(data)
@@ -54,7 +58,7 @@ def load_st_dataset(dataset):
 
     elif dataset == 'PEMS03':
         data_path = os.path.join('../PEMS_data/PEMS03/PEMS03.npz')
-        data = np.load(data_path)['data'][:, :, 0]  #onley the first dimension, traffic flow data
+        data = np.load(data_path)['data'][:len if len != -1 else None, :, 0]  #onley the first dimension, traffic flow data
 
         # day and week
         day_data = np.zeros_like(data)
