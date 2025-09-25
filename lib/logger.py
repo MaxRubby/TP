@@ -20,7 +20,8 @@ def get_logger(root, name=None, debug=True):
     else:
         console_handler.setLevel(logging.INFO)
         # create a handler for write log to file
-        logfile = os.path.join(root, 'run.log')
+        timestamp = datetime.now().strftime('%Y%m%d_%H%M%S')
+        logfile = os.path.join(root, f'run_{timestamp}.log')
         print('Creat Log File in: ', logfile)
         file_handler = logging.FileHandler(logfile, mode='w')
         file_handler.setLevel(logging.DEBUG)

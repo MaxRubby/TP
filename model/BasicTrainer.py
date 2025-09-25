@@ -46,7 +46,7 @@ class Trainer(object):
 		#self.logger.info("Argument: %r", args)
 		# for arg, value in sorted(vars(args).items()):
 		#     self.logger.info("Argument %s: %r", arg, value)
-		if self.args.teacher:
+		if self.args.t is False: #如果教师模型不需要训练则直接加载
 			self.tmodel = self.loadTeacher(self.args)
 	# load teacher model
 	def loadTeacher(self,args):
@@ -54,11 +54,9 @@ class Trainer(object):
 		current_dir = os.path.dirname(os.path.realpath(__file__))
 		ckpt_path = os.path.join(args.log_dir, 'best_model.pth')
 		# ckpt_path = os.path.join(current_dir, 'SAVE', args.dataset, 'best_model.pth')
-		
+		self.logger.info("加载教师模型: {}".format(ckpt_path))
 		# 选择使用STAEformerTeacher还是原始Teacher
-		use_staeformer = getattr(args, 'use_staeformer_teacher', True)
-		use_staeformer = True
-		if use_staeformer:
+		if args.t2:
 			self.logger.info("教师模型为STAEFormer")
 			tmodel = STAEformerTeacher(args).to(args.device)
 		else:

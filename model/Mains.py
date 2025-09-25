@@ -2,6 +2,9 @@
 from math import log
 import os
 import sys
+
+
+
 file_dir = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 print(file_dir)
 sys.path.append(file_dir)
@@ -118,7 +121,7 @@ args.add_argument('--log_step', default=config['log']['log_step'], type=int)
 args.add_argument('--plot', default=config['log']['plot'], type=eval)
 args.add_argument('--teacher', default=True, type=eval)
 args.add_argument('--t', action='store_true', help='train teacher model first')
-args.add_argument('--use_staeformer_teacher', action='store_true', help='use STAEformer as teacher model')
+args.add_argument('--t2', action='store_true', help='use STAEformer as teacher model')
 args = args.parse_args()
 
 args.filepath = '../PEMS_data/' + DATASET +'/'
@@ -140,8 +143,10 @@ student_model = StudentNetwork(args)
 student_model = student_model.to(args.device)
 
 # 教师模型 (STAEformer)
-# teacher_model = TeacherNetwork(args)
-teacher_model = Network(args)
+if args.t2:
+    teacher_model = TeacherNetwork(args)
+else:
+    teacher_model = Network(args)
 teacher_model = teacher_model.to(args.device)
 # for p in model.parameters():
 #     if p.dim() > 1:
@@ -163,6 +168,8 @@ elif args.loss_func == 'mae':
     loss = torch.nn.L1Loss().to(args.device)
 elif args.loss_func == 'mse':
     loss = torch.nn.MSELoss().to(args.device)
+elif args.loss_func == 'huber':
+    loss = nn.HuberLoss().to(args.device)
 else:
     raise ValueError
 
