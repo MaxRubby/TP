@@ -127,6 +127,10 @@ class STAEformer(nn.Module):
         num_layers=3,
         dropout=0.1,
         use_mixed_proj=True,
+        # 新增参数：交通模式解耦
+        num_traffic_patterns=3,  # 交通模式数量P
+        use_pattern_decomposition=True,  # 是否启用模式解耦
+        pattern_mlp_hidden_dim=64,  # MLP隐藏层维度
     ):
         super().__init__()
 
@@ -141,6 +145,11 @@ class STAEformer(nn.Module):
         self.dow_embedding_dim = dow_embedding_dim
         self.spatial_embedding_dim = spatial_embedding_dim
         self.adaptive_embedding_dim = adaptive_embedding_dim
+        
+        # 新增：模式解耦参数
+        self.num_traffic_patterns = num_traffic_patterns
+        self.use_pattern_decomposition = use_pattern_decomposition
+        
         self.model_dim = (
             input_embedding_dim
             + tod_embedding_dim
@@ -166,6 +175,23 @@ class STAEformer(nn.Module):
             self.adaptive_embedding = nn.init.xavier_uniform_(
                 nn.Parameter(torch.empty(in_steps, num_nodes, adaptive_embedding_dim))
             )
+
+        # 新增：交通模式解耦MLP
+        if self.use_pattern_decomposition:
+            # 计算时空嵌入特征的总维度
+            embedding_dim = tod_embedding_dim + dow_embedding_dim + spatial_embedding_dim
+            
+            # 模式比例学习的MLP
+            self.pattern_mlp = nn.Sequential(
+                nn.Linear(embedding_dim, pattern_mlp_hidden_dim),
+                nn.ReLU(),
+                nn.Linear(pattern_mlp_hidden_dim, pattern_mlp_hidden_dim),
+                nn.ReLU(),
+                nn.Linear(pattern_mlp_hidden_dim, num_traffic_patterns)
+            )
+            
+            # 模式解耦后的特征投影层
+            self.pattern_proj = nn.Linear(input_dim * num_traffic_patterns, input_embedding_dim)
 
         if use_mixed_proj:
             self.output_proj = nn.Linear(
@@ -197,29 +223,73 @@ class STAEformer(nn.Module):
             tod = x[..., 1]
         if self.dow_embedding_dim > 0:
             dow = x[..., 2]
-        x = x[..., : self.input_dim]
+        
+        # 保存原始交通流数据用于模式解耦
+        x_raw = x[..., : self.input_dim]  # (batch_size, in_steps, num_nodes, input_dim)
 
-        x = self.input_proj(x)  # (batch_size, in_steps, num_nodes, input_embedding_dim)
+        x = self.input_proj(x_raw)  # (batch_size, in_steps, num_nodes, input_embedding_dim)
         features = [x]
+        
+        # 收集时空嵌入特征用于模式解耦
+        embedding_features = []
+        
         if self.tod_embedding_dim > 0:
             tod_emb = self.tod_embedding((tod * self.steps_per_day).long())  # (batch_size, in_steps, num_nodes, tod_embedding_dim)
             features.append(tod_emb)
+            embedding_features.append(tod_emb)
         if self.dow_embedding_dim > 0:
             dow_emb = self.dow_embedding(
                 dow.long()
             )  # (batch_size, in_steps, num_nodes, dow_embedding_dim)
             features.append(dow_emb)
+            embedding_features.append(dow_emb)
         if self.spatial_embedding_dim > 0:
             spatial_emb = self.node_emb.expand(
                 batch_size, self.in_steps, *self.node_emb.shape
             )
             features.append(spatial_emb)
+            embedding_features.append(spatial_emb)
         if self.adaptive_embedding_dim > 0:
             adp_emb = self.adaptive_embedding.expand(
                 size=(batch_size, *self.adaptive_embedding.shape)
             )
             features.append(adp_emb)
+        
         x = torch.cat(features, dim=-1)  # (batch_size, in_steps, num_nodes, model_dim)
+        
+        # 交通模式解耦
+        if self.use_pattern_decomposition and len(embedding_features) > 0:
+            # 1. 特征嵌入拼接：F_emb = Concat(T_d, T_w, E_nd)
+            F_emb = torch.cat(embedding_features, dim=-1)  # (batch_size, in_steps, num_nodes, embedding_dim)
+            
+            # 2. 模式比例学习：通过MLP和Softmax学习每个时空位置属于不同交通模式的比例
+            # Omega'_p(t,i) = MLP(F_emb(t,i))
+            pattern_logits = self.pattern_mlp(F_emb)  # (batch_size, in_steps, num_nodes, num_traffic_patterns)
+            
+            # Omega_p(t,i) = Softmax(Omega'_p(t,i))_p
+            pattern_weights = torch.softmax(pattern_logits, dim=-1)  # (batch_size, in_steps, num_nodes, num_traffic_patterns)
+            
+            # 3. 交通流解耦：X_p(t,i) = X_raw(t,i) ⊙ Omega_p(t,i)
+            # 扩展原始交通流维度以匹配模式数量
+            x_raw_expanded = x_raw.unsqueeze(-1)  # (batch_size, in_steps, num_nodes, input_dim, 1)
+            pattern_weights_expanded = pattern_weights.unsqueeze(-2)  # (batch_size, in_steps, num_nodes, 1, num_traffic_patterns)
+            
+            # 计算每个模式的交通流
+            x_patterns = x_raw_expanded * pattern_weights_expanded  # (batch_size, in_steps, num_nodes, input_dim, num_traffic_patterns)
+            
+            # 将多模式交通流重新组织为特征
+            # 这里我们将不同模式的流量作为额外的特征维度
+            x_patterns_reshaped = x_patterns.view(batch_size, self.in_steps, self.num_nodes, -1)  # (batch_size, in_steps, num_nodes, input_dim * num_traffic_patterns)
+            
+            # 将模式解耦后的特征投影到相同的嵌入维度
+            x_pattern_emb = self.pattern_proj(x_patterns_reshaped)  # (batch_size, in_steps, num_nodes, input_embedding_dim)
+            
+            # 更新特征列表，用模式解耦后的特征替换原始输入特征
+            features[0] = x_pattern_emb
+            x = torch.cat(features, dim=-1)  # 重新拼接所有特征
+            
+            # 存储模式权重用于分析（可选）
+            self.last_pattern_weights = pattern_weights
 
         # 保存中间特征用于知识蒸馏
         temporal_features = []  # 模拟tout：时间注意力后的特征
