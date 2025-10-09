@@ -106,7 +106,7 @@ def get_dataloader(args, normalizer = 'std', tod=False, dow=False, weather=False
     data = load_st_dataset(args.dataset, length)        # B, N, D
     #normalize st data
     # 创建缓存文件路径
-    cache_dir = os.path.join("../PEMS_data/PEMS04/", 'data_cache')
+    cache_dir = os.path.join(f"../PEMS_data/{args.dataset}/", 'data_cache')
     os.makedirs(cache_dir, exist_ok=True)
 
     # 生成缓存文件名（基于数据集和参数，包含tod和dow信息）

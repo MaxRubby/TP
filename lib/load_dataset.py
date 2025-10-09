@@ -37,57 +37,26 @@ def load_st_dataset(dataset, length=None):
         week_data = np.zeros_like(data)
         day_init = 0
         week_init = 0
-        week_spe = 5
         for index in range(data.shape[0]):
-            # day add
+            if (index) % (288 * 7) == 0:
+                week_init = 0
             if (index) % 288 == 0:
                 day_init = 0
+            if (index) % 288 == 0:
+                week_init = week_init + 1
+
+            # tod: 0-1范围的浮点数，表示一天中的时间位置
+            day_data[index:index + 1, :] = day_init / 288.0  # 0到1之间
+            # dow: 0-6范围的整数，表示星期几
+            week_data[index:index + 1, :] = week_init - 1  # 调整到0-6范围
+
             day_init = day_init + 1
-            day_data[index:index + 1, :] = day_init
-            # week add
-            if index < (288*3):
-                if index !=0 and index % 288 == 0:
-                    week_spe = week_spe + 1
-                week_data[index:index + 1, :] = week_spe
-            else:
-                if (index-288*3) % (288 * 7) == 0:
-                    week_init = 0
-                if index % 288 == 0:
-                    week_init = week_init + 1
-                week_data[index:index + 1, :] = week_init
 
     elif dataset == 'PEMS03':
         data_path = os.path.join('../PEMS_data/PEMS03/PEMS03.npz')
         data = np.load(data_path)['data'][:length if length != -1 else None, :, 0]  #onley the first dimension, traffic flow data
 
         # day and week
-        day_data = np.zeros_like(data)
-        week_data = np.zeros_like(data)
-        day_init = 0
-        week_init = 0
-        week_spe = 6
-        for index in range(data.shape[0]):
-            # day add
-            if (index) % 288 == 0:
-                day_init = 0
-            day_init = day_init + 1
-            day_data[index:index + 1, :] = day_init
-            # week add
-            if index < (288*3):
-                if index !=0 and index % 288 == 0:
-                    week_spe = week_spe + 1
-                week_data[index:index + 1, :] = week_spe
-            else:
-                if (index-288*3) % (288 * 7) == 0:
-                    week_init = 0
-                if index % 288 == 0:
-                    week_init = week_init + 1
-                week_data[index:index + 1, :] = week_init
-
-    elif dataset == 'PEMS07':
-        data_path = os.path.join('../PEMS_data/PEMS07/PEMS07.npz')
-        data = np.load(data_path)['data'][:, :, 0]  # onley the first dimension, traffic flow data
-
         day_data = np.zeros_like(data)
         week_data = np.zeros_like(data)
         day_init = 0
@@ -99,9 +68,37 @@ def load_st_dataset(dataset, length=None):
                 day_init = 0
             if (index) % 288 == 0:
                 week_init = week_init + 1
+
+            # tod: 0-1范围的浮点数，表示一天中的时间位置
+            day_data[index:index + 1, :] = day_init / 288.0  # 0到1之间
+            # dow: 0-6范围的整数，表示星期几
+            week_data[index:index + 1, :] = week_init - 1  # 调整到0-6范围
+
             day_init = day_init + 1
-            day_data[index:index + 1, :] = day_init
-            week_data[index:index + 1, :] = week_init
+
+    elif dataset == 'PEMS07':
+        data_path = os.path.join('../PEMS_data/PEMS07/PEMS07.npz')
+        data = np.load(data_path)['data'][:, :, 0]  # onley the first dimension, traffic flow data
+
+        # day and week
+        day_data = np.zeros_like(data)
+        week_data = np.zeros_like(data)
+        day_init = 0
+        week_init = 0
+        for index in range(data.shape[0]):
+            if (index) % (288 * 7) == 0:
+                week_init = 0
+            if (index) % 288 == 0:
+                day_init = 0
+            if (index) % 288 == 0:
+                week_init = week_init + 1
+
+            # tod: 0-1范围的浮点数，表示一天中的时间位置
+            day_data[index:index + 1, :] = day_init / 288.0  # 0到1之间
+            # dow: 0-6范围的整数，表示星期几
+            week_data[index:index + 1, :] = week_init - 1  # 调整到0-6范围
+
+            day_init = day_init + 1
 
     else:
         raise ValueError

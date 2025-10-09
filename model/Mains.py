@@ -28,7 +28,7 @@ from lib.pre_graph import get_adjacency_matrix
 Mode = 'train'
 # Mode = 'test'
 DEBUG = True            #Save model parameters or not
-DATASET = 'PEMS04'      #PEMSD4, PEMSD8, PEMSD3, PEMSD7
+DATASET = 'PEMS08'      #PEMSD4, PEMSD8, PEMSD3, PEMSD7
 DEVICE = 'cuda:0'
 MODEL = 'MTGNN'
 
@@ -159,7 +159,9 @@ print_model_parameters(student_model, only_num=False)
 train_loader, val_loader, test_loader, scaler_data, scaler_day, scaler_week = get_dataloader(args,
                                                                normalizer=args.normalizer,
                                                                tod=True, dow=True,
-                                                               weather=False, single=False, length = 256)
+                                                               weather=False, single=False
+                                                                                             # , length = 256
+                                                                                             )
 
 #init loss function, optimizer
 if args.loss_func == 'mask_mae':

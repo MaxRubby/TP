@@ -1,6 +1,5 @@
 import torch.nn as nn
 import torch
-from torchinfo import summary
 
 
 class AttentionLayer(nn.Module):
@@ -44,10 +43,21 @@ class AttentionLayer(nn.Module):
         key = self.FC_K(key)
         value = self.FC_V(value)
 
+        # 添加调试信息
+        if query.shape[-1] != self.model_dim:
+            print(f"Error: query last dim {query.shape[-1]} != model_dim {self.model_dim}")
+        if self.model_dim % self.num_heads != 0:
+            print(f"Error: model_dim {self.model_dim} not divisible by num_heads {self.num_heads}")
+        
         # Qhead, Khead, Vhead (num_heads * batch_size, ..., length, head_dim)
-        query = torch.cat(torch.split(query, self.head_dim, dim=-1), dim=0)
-        key = torch.cat(torch.split(key, self.head_dim, dim=-1), dim=0)
-        value = torch.cat(torch.split(value, self.head_dim, dim=-1), dim=0)
+        try:
+            query = torch.cat(torch.split(query, self.head_dim, dim=-1), dim=0)
+            key = torch.cat(torch.split(key, self.head_dim, dim=-1), dim=0)
+            value = torch.cat(torch.split(value, self.head_dim, dim=-1), dim=0)
+        except Exception as e:
+            print(f"Error in torch.split: {e}")
+            print(f"query shape: {query.shape}, head_dim: {self.head_dim}")
+            raise e
 
         key = key.transpose(
             -1, -2
@@ -94,8 +104,22 @@ class SelfAttentionLayer(nn.Module):
     def forward(self, x, dim=-2):
         x = x.transpose(dim, -2)
         # x: (batch_size, ..., length, model_dim)
+        
+        # 添加调试信息
+        if torch.isnan(x).any():
+            print(f"Warning: NaN detected in input tensor, shape: {x.shape}")
+        if torch.isinf(x).any():
+            print(f"Warning: Inf detected in input tensor, shape: {x.shape}")
+        
         residual = x
         out = self.attn(x, x, x)  # (batch_size, ..., length, model_dim)
+        
+        # 检查注意力输出
+        if torch.isnan(out).any():
+            print(f"Warning: NaN detected in attention output, shape: {out.shape}")
+        if torch.isinf(out).any():
+            print(f"Warning: Inf detected in attention output, shape: {out.shape}")
+            
         out = self.dropout1(out)
         out = self.ln1(residual + out)
 
@@ -218,6 +242,14 @@ class STAEformer(nn.Module):
     def forward(self, x, save_visualization_data=False):
         # x: (batch_size, in_steps, num_nodes, input_dim+tod+dow=3)
         batch_size = x.shape[0]
+        
+        # # 添加调试信息
+        # print(f"STAEformer input shape: {x.shape}")
+        # print(f"Expected: (batch_size, {self.in_steps}, {self.num_nodes}, 3)")
+        # if torch.isnan(x).any():
+        #     print(f"Warning: NaN detected in STAEformer input")
+        # if torch.isinf(x).any():
+        #     print(f"Warning: Inf detected in STAEformer input")
 
         # 初始化可视化数据字典
         if save_visualization_data:
@@ -256,16 +288,32 @@ class STAEformer(nn.Module):
         embedding_features = []
         
         if self.tod_embedding_dim > 0:
-            tod_emb = self.tod_embedding((tod * self.steps_per_day).long())  # (batch_size, in_steps, num_nodes, tod_embedding_dim)
+            tod_indices = (tod * self.steps_per_day).long()
+            # 添加调试信息和边界检查
+            # print(f"TOD indices range: [{tod_indices.min().item()}, {tod_indices.max().item()}]")
+            # print(f"TOD embedding size: {self.steps_per_day}")
+            if tod_indices.min() < 0 or tod_indices.max() >= self.steps_per_day:
+                print(f"Warning: TOD indices out of range! Min: {tod_indices.min()}, Max: {tod_indices.max()}, Expected range: [0, {self.steps_per_day-1}]")
+                # 修复超出范围的索引
+                tod_indices = torch.clamp(tod_indices, 0, self.steps_per_day - 1)
+            
+            tod_emb = self.tod_embedding(tod_indices)  # (batch_size, in_steps, num_nodes, tod_embedding_dim)
             features.append(tod_emb)
             embedding_features.append(tod_emb)
             if save_visualization_data:
                 self.visualization_data['embeddings']['tod_emb'] = tod_emb.clone().detach()
                 
         if self.dow_embedding_dim > 0:
-            dow_emb = self.dow_embedding(
-                dow.long()
-            )  # (batch_size, in_steps, num_nodes, dow_embedding_dim)
+            dow_indices = dow.long()
+            # 添加调试信息和边界检查
+            # print(f"DOW indices range: [{dow_indices.min().item()}, {dow_indices.max().item()}]")
+            # print(f"DOW embedding size: 7")
+            if dow_indices.min() < 0 or dow_indices.max() >= 7:
+                print(f"Warning: DOW indices out of range! Min: {dow_indices.min()}, Max: {dow_indices.max()}, Expected range: [0, 6]")
+                # 修复超出范围的索引
+                dow_indices = torch.clamp(dow_indices, 0, 6)
+            
+            dow_emb = self.dow_embedding(dow_indices)  # (batch_size, in_steps, num_nodes, dow_embedding_dim)
             features.append(dow_emb)
             embedding_features.append(dow_emb)
             if save_visualization_data:
