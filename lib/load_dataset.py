@@ -30,7 +30,7 @@ def load_st_dataset(dataset, length=None):
 
     elif dataset == 'PEMS08':
         data_path = os.path.join('../PEMS_data/PEMS08/PEMS08.npz')
-        data = np.load(data_path)['data'][:len if len != -1 else None, :, 0]  #onley the first dimension, traffic flow data
+        data = np.load(data_path)['data'][:length if length != -1 else None, :, 0]  #onley the first dimension, traffic flow data
 
         # day and week
         day_data = np.zeros_like(data)
@@ -58,7 +58,7 @@ def load_st_dataset(dataset, length=None):
 
     elif dataset == 'PEMS03':
         data_path = os.path.join('../PEMS_data/PEMS03/PEMS03.npz')
-        data = np.load(data_path)['data'][:len if len != -1 else None, :, 0]  #onley the first dimension, traffic flow data
+        data = np.load(data_path)['data'][:length if length != -1 else None, :, 0]  #onley the first dimension, traffic flow data
 
         # day and week
         day_data = np.zeros_like(data)
