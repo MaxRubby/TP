@@ -153,7 +153,7 @@ class STAEformer(nn.Module):
         use_mixed_proj=True,
         # 新增参数：交通模式解耦
         num_traffic_patterns=3,  # 交通模式数量P
-        use_pattern_decomposition=True,  # 是否启用模式解耦
+        use_pattern_decomposition=False,  # 是否启用模式解耦
         pattern_mlp_hidden_dim=64,  # MLP隐藏层维度
     ):
         super().__init__()
