@@ -159,7 +159,7 @@ print_model_parameters(student_model, only_num=False)
 train_loader, val_loader, test_loader, scaler_data, scaler_day, scaler_week = get_dataloader(args,
                                                                normalizer=args.normalizer,
                                                                tod=True, dow=True,
-                                                               weather=False, single=False)
+                                                               weather=False, single=False, length = 256)
 
 #init loss function, optimizer
 if args.loss_func == 'mask_mae':

@@ -215,17 +215,39 @@ class STAEformer(nn.Module):
             ]
         )
 
-    def forward(self, x):
+    def forward(self, x, save_visualization_data=False):
         # x: (batch_size, in_steps, num_nodes, input_dim+tod+dow=3)
         batch_size = x.shape[0]
 
+        # 初始化可视化数据字典
+        if save_visualization_data:
+            
+            self.visualization_data = {
+                'input_data': {},
+                'embeddings': {},
+                'pattern_decomposition': {},
+                'temporal_features': [],
+                'spatiotemporal_features': [],
+                'attention_weights': [],
+                'final_outputs': {}
+            }
+            
+            # 保存输入数据
+            self.visualization_data['input_data']['raw_input'] = x.clone().detach()
+
         if self.tod_embedding_dim > 0:
             tod = x[..., 1]
+            if save_visualization_data:
+                self.visualization_data['input_data']['tod'] = tod.clone().detach()
         if self.dow_embedding_dim > 0:
             dow = x[..., 2]
+            if save_visualization_data:
+                self.visualization_data['input_data']['dow'] = dow.clone().detach()
         
         # 保存原始交通流数据用于模式解耦
         x_raw = x[..., : self.input_dim]  # (batch_size, in_steps, num_nodes, input_dim)
+        if save_visualization_data:
+            self.visualization_data['input_data']['x_raw'] = x_raw.clone().detach()
 
         x = self.input_proj(x_raw)  # (batch_size, in_steps, num_nodes, input_embedding_dim)
         features = [x]
@@ -237,37 +259,58 @@ class STAEformer(nn.Module):
             tod_emb = self.tod_embedding((tod * self.steps_per_day).long())  # (batch_size, in_steps, num_nodes, tod_embedding_dim)
             features.append(tod_emb)
             embedding_features.append(tod_emb)
+            if save_visualization_data:
+                self.visualization_data['embeddings']['tod_emb'] = tod_emb.clone().detach()
+                
         if self.dow_embedding_dim > 0:
             dow_emb = self.dow_embedding(
                 dow.long()
             )  # (batch_size, in_steps, num_nodes, dow_embedding_dim)
             features.append(dow_emb)
             embedding_features.append(dow_emb)
+            if save_visualization_data:
+                self.visualization_data['embeddings']['dow_emb'] = dow_emb.clone().detach()
+                
         if self.spatial_embedding_dim > 0:
             spatial_emb = self.node_emb.expand(
                 batch_size, self.in_steps, *self.node_emb.shape
             )
             features.append(spatial_emb)
             embedding_features.append(spatial_emb)
+            if save_visualization_data:
+                self.visualization_data['embeddings']['spatial_emb'] = spatial_emb.clone().detach()
+                self.visualization_data['embeddings']['node_emb_params'] = self.node_emb.clone().detach()
+                
         if self.adaptive_embedding_dim > 0:
             adp_emb = self.adaptive_embedding.expand(
                 size=(batch_size, *self.adaptive_embedding.shape)
             )
             features.append(adp_emb)
+            if save_visualization_data:
+                self.visualization_data['embeddings']['adaptive_emb'] = adp_emb.clone().detach()
+                self.visualization_data['embeddings']['adaptive_emb_params'] = self.adaptive_embedding.clone().detach()
         
         x = torch.cat(features, dim=-1)  # (batch_size, in_steps, num_nodes, model_dim)
+        if save_visualization_data:
+            self.visualization_data['embeddings']['combined_features'] = x.clone().detach()
         
         # 交通模式解耦
         if self.use_pattern_decomposition and len(embedding_features) > 0:
             # 1. 特征嵌入拼接：F_emb = Concat(T_d, T_w, E_nd)
             F_emb = torch.cat(embedding_features, dim=-1)  # (batch_size, in_steps, num_nodes, embedding_dim)
+            if save_visualization_data:
+                self.visualization_data['pattern_decomposition']['F_emb'] = F_emb.clone().detach()
             
             # 2. 模式比例学习：通过MLP和Softmax学习每个时空位置属于不同交通模式的比例
             # Omega'_p(t,i) = MLP(F_emb(t,i))
             pattern_logits = self.pattern_mlp(F_emb)  # (batch_size, in_steps, num_nodes, num_traffic_patterns)
+            if save_visualization_data:
+                self.visualization_data['pattern_decomposition']['pattern_logits'] = pattern_logits.clone().detach()
             
             # Omega_p(t,i) = Softmax(Omega'_p(t,i))_p
             pattern_weights = torch.softmax(pattern_logits, dim=-1)  # (batch_size, in_steps, num_nodes, num_traffic_patterns)
+            if save_visualization_data:
+                self.visualization_data['pattern_decomposition']['pattern_weights'] = pattern_weights.clone().detach()
             
             # 3. 交通流解耦：X_p(t,i) = X_raw(t,i) ⊙ Omega_p(t,i)
             # 扩展原始交通流维度以匹配模式数量
@@ -276,6 +319,8 @@ class STAEformer(nn.Module):
             
             # 计算每个模式的交通流
             x_patterns = x_raw_expanded * pattern_weights_expanded  # (batch_size, in_steps, num_nodes, input_dim, num_traffic_patterns)
+            if save_visualization_data:
+                self.visualization_data['pattern_decomposition']['x_patterns'] = x_patterns.clone().detach()
             
             # 将多模式交通流重新组织为特征
             # 这里我们将不同模式的流量作为额外的特征维度
@@ -283,6 +328,8 @@ class STAEformer(nn.Module):
             
             # 将模式解耦后的特征投影到相同的嵌入维度
             x_pattern_emb = self.pattern_proj(x_patterns_reshaped)  # (batch_size, in_steps, num_nodes, input_embedding_dim)
+            if save_visualization_data:
+                self.visualization_data['pattern_decomposition']['x_pattern_emb'] = x_pattern_emb.clone().detach()
             
             # 更新特征列表，用模式解耦后的特征替换原始输入特征
             features[0] = x_pattern_emb
@@ -296,16 +343,28 @@ class STAEformer(nn.Module):
         spatiotemporal_features = []  # 模拟sout：时空注意力后的特征
         
         # 时间注意力层
-        for attn in self.attn_layers_t:
+        for i, attn in enumerate(self.attn_layers_t):
             x = attn(x, dim=1)
             temporal_features.append(x.clone())  # 保存时间注意力后的特征
+            if save_visualization_data:
+                self.visualization_data['temporal_features'].append({
+                    'layer_idx': i,
+                    'feature': x.clone().detach()
+                })
             
         # 空间注意力层
-        for attn in self.attn_layers_s:
+        for i, attn in enumerate(self.attn_layers_s):
             x = attn(x, dim=2)
             spatiotemporal_features.append(x.clone())  # 保存时空注意力后的特征
+            if save_visualization_data:
+                self.visualization_data['spatiotemporal_features'].append({
+                    'layer_idx': i,
+                    'feature': x.clone().detach()
+                })
         
         # (batch_size, in_steps, num_nodes, model_dim)
+        if save_visualization_data:
+            self.visualization_data['final_outputs']['pre_projection_features'] = x.clone().detach()
 
         if self.use_mixed_proj:
             out = x.transpose(1, 2)  # (batch_size, num_nodes, in_steps, model_dim)
@@ -324,6 +383,19 @@ class STAEformer(nn.Module):
             out = self.output_proj(
                 out.transpose(1, 3)
             )  # (batch_size, out_steps, num_nodes, output_dim)
+
+        if save_visualization_data:
+            self.visualization_data['final_outputs']['prediction'] = out.clone().detach()
+            # 添加一些统计信息
+            self.visualization_data['meta_info'] = {
+                'batch_size': batch_size,
+                'in_steps': self.in_steps,
+                'out_steps': self.out_steps,
+                'num_nodes': self.num_nodes,
+                'model_dim': self.model_dim,
+                'num_traffic_patterns': self.num_traffic_patterns if self.use_pattern_decomposition else 0,
+                'use_pattern_decomposition': self.use_pattern_decomposition
+            }
 
         # 返回主输出和中间特征
         # temporal_features[-1]: 最后一层时间注意力特征 (模拟tout[-1])

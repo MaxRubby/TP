@@ -475,7 +475,7 @@ class Teacher(nn.Module):
 		
 
 	
-	def forward(self, source, idx=None):
+	def forward(self, source, idx=None, save_visualization_data=False):
 		# inputs = batch['X']  # (batch_size, input_window, num_nodes, feature_dim)
 		sout = []
 		tout = []
@@ -818,7 +818,8 @@ class STAEformerTeacher(nn.Module):
 		assert x.size(2) == self.num_nodes, f'input nodes {x.size(2)} not equal to preset nodes {self.num_nodes}'
 		
 		# 通过STAEformer，获取主输出和中间特征
-		output, temporal_feature, spatiotemporal_feature = self.staeformer(x)
+		# 将save_visualization_data参数传递给内部的STAEformer模型
+		output, temporal_feature, spatiotemporal_feature = self.staeformer(x, True)
 		# output: (batch_size, output_window, num_nodes, output_dim)
 		# temporal_feature: (batch_size, input_window, num_nodes, model_dim) - 时间注意力特征
 		# spatiotemporal_feature: (batch_size, input_window, num_nodes, model_dim) - 时空注意力特征

@@ -11,8 +11,8 @@ from model.Teacher import Teacher as Network1
 from model.Teacher import STAEformerTeacher
 
 import torch.nn as nn 
-
-
+import pickle
+from collections import defaultdict
 
 
 class Trainer(object):
@@ -37,11 +37,24 @@ class Trainer(object):
 		self.best_path_ckpt = os.path.join(self.args.log_dir, 'ckpt_best_model')
 		self.best_pathS_ckpt = os.path.join(self.args.log_dir, 'ckpt_best_modelstudent')
 		self.loss_figure_path = os.path.join(self.args.log_dir, 'loss.png')
+		
+		# 新增：可视化数据保存路径
+		self.visualization_dir = os.path.join(self.args.log_dir, 'visualization_data')
+		os.makedirs(self.visualization_dir, exist_ok=True)
+		
+		# 可视化数据收集器
+		self.visualization_collector = {
+			'epoch_data': defaultdict(list),  # 每个epoch的数据
+			'batch_samples': defaultdict(list),  # 采样的batch数据
+			'training_progress': []  # 训练进度数据
+		}
+		
 		#log
 		if os.path.isdir(args.log_dir) == False and not args.debug:
 			os.makedirs(args.log_dir, exist_ok=True)
 		self.logger = get_logger(args.log_dir, name=args.model, debug=False)
 		self.logger.info('Experiment log path in: {}'.format(args.log_dir))
+		self.logger.info('Visualization data path in: {}'.format(self.visualization_dir))
 		#if not args.debug:
 		#self.logger.info("Argument: %r", args)
 		# for arg, value in sorted(vars(args).items()):
@@ -68,6 +81,103 @@ class Trainer(object):
 		state_dict = torch.load(ckpt_path, map_location=map_loc)
 		tmodel.load_state_dict(state_dict, strict=False)
 		return tmodel
+	def save_visualization_data(self, epoch, batch_idx, data, save_sample):
+		"""
+		保存可视化数据
+		
+		Args:
+			epoch: 当前epoch
+			batch_idx: 当前batch索引
+			data: 输入数据
+			save_sample: 是否保存详细的样本数据
+		"""
+		try:
+			# 只在特定条件下保存详细数据，避免存储过多
+			should_save_detailed = (
+				epoch % 5 == 0 and  # 每5个epoch保存一次
+				batch_idx == 0  # 只保存第一个batch
+			) or save_sample
+			
+			if should_save_detailed:
+
+				self.model.eval()
+				with torch.no_grad():
+					# 获取可视化数据
+					_, _, _ = self.model(data)
+					
+					if hasattr(self.model.staeformer, 'visualization_data'):
+						# 保存到收集器
+						epoch_key = f'epoch_{epoch:03d}'
+						
+						# 保存核心数据
+						core_data = {
+							'epoch': epoch,
+							'batch_idx': batch_idx,
+							'timestamp': time.time(),
+							'meta_info': self.model.staeformer.visualization_data.get('meta_info', {}),
+						}
+						
+						# 保存模式解耦相关数据（这是重点）
+						if 'pattern_decomposition' in self.model.staeformer.visualization_data:
+							pattern_data = self.model.staeformer.visualization_data['pattern_decomposition']
+							core_data['pattern_weights'] = pattern_data.get('pattern_weights', None)
+							core_data['pattern_logits'] = pattern_data.get('pattern_logits', None)
+							core_data['F_emb'] = pattern_data.get('F_emb', None)
+							
+						# 保存嵌入数据
+						if 'embeddings' in self.model.staeformer.visualization_data:
+							embedding_data = self.model.staeformer.visualization_data['embeddings']
+							core_data['embeddings'] = {
+								'tod_emb': embedding_data.get('tod_emb', None),
+								'dow_emb': embedding_data.get('dow_emb', None),
+								'spatial_emb': embedding_data.get('spatial_emb', None),
+								'node_emb_params': embedding_data.get('node_emb_params', None),
+							}
+						
+						# 保存时空特征
+						if 'temporal_features' in self.model.staeformer.visualization_data:
+							core_data['temporal_features'] = [
+								{
+									'layer_idx': item['layer_idx'],
+									'feature_shape': item['feature'].shape,
+									'feature_mean': item['feature'].mean().item(),
+									'feature_std': item['feature'].std().item()
+								}
+								for item in self.model.staeformer.visualization_data['temporal_features']
+							]
+							
+						if 'spatiotemporal_features' in self.model.staeformer.visualization_data:
+							core_data['spatiotemporal_features'] = [
+								{
+									'layer_idx': item['layer_idx'],
+									'feature_shape': item['feature'].shape,
+									'feature_mean': item['feature'].mean().item(),
+									'feature_std': item['feature'].std().item()
+								}
+								for item in self.model.staeformer.visualization_data['spatiotemporal_features']
+							]
+						
+						# 保存到文件
+						save_path = os.path.join(self.visualization_dir, f'{epoch_key}_batch_{batch_idx:03d}.pkl')
+						
+						# 如果需要保存完整数据
+						if save_sample:
+							full_data = copy.deepcopy(self.model.staeformer.visualization_data)
+							full_data['core_info'] = core_data
+							with open(save_path, 'wb') as f:
+								pickle.dump(full_data, f)
+						else:
+							# 只保存核心数据
+							with open(save_path, 'wb') as f:
+								pickle.dump(core_data, f)
+								
+						self.logger.info(f'Visualization data saved: {save_path}')
+						
+		except Exception as e:
+			self.logger.warning(f'Failed to save visualization data: {e}')
+		finally:
+			self.model.train()  # 恢复训练模式
+	
 	def val_epoch(self, epoch, val_dataloader):
 		self.model.eval()
 		total_val_loss = 0
@@ -83,6 +193,9 @@ class Trainer(object):
 				#a whole batch of Metr_LA is filtered
 				if not torch.isnan(loss):
 					total_val_loss += loss.item()
+				
+
+					
 		val_loss = total_val_loss / len(val_dataloader)
 		self.logger.info('**********Val Epoch {}: average Loss: {:.6f}'.format(epoch, val_loss))
 		return val_loss
@@ -394,7 +507,7 @@ class Trainer(object):
 		else:
 			y_pred = scaler.inverse_transform(torch.cat(y_pred, dim=0))
 		y_emb = torch.cat(y_emb, dim=0)
-		np.save('./{}_true.npy'.format(args.dataset), y_true.cpu().numpy())
+		np.save('./{}_tre.npy'.format(args.dataset), y_true.cpu().numpy())
 		np.save('./{}_pred.npy'.format(args.dataset), y_pred.cpu().numpy())
 		np.save('./{}_emb.npy'.format(args.dataset), y_emb.cpu().numpy())
 		for t in range(y_true.shape[1]):
@@ -529,6 +642,9 @@ class Trainer(object):
 				loss = self.loss(output.cuda(), label)
 				if not torch.isnan(loss):
 					total_val_loss += loss.item()
+				# 在验证过程中保存可视化数据（每个epoch只保存一次）
+				if batch_idx == 0:
+					self.save_visualization_data(epoch, batch_idx, data, save_sample=True)
 		val_loss = total_val_loss / len(val_dataloader)
 		self.logger.info('**********Teacher Val Epoch {}: average Loss: {:.6f}'.format(epoch, val_loss))
 		return val_loss
